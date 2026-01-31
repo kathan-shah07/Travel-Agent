@@ -313,7 +313,22 @@ export class TravelAgent {
 
             this.currentItinerary = constructionResult;
 
-            // 3. Evaluate
+            // 3.5 Auto-fix: Trim days that exceed time window
+            if (this.currentItinerary) {
+                const availableMins = this.parseTimeWindow(this.preferences.daily_time_window);
+                for (const day of this.currentItinerary.days) {
+                    let totalMins = day.blocks.reduce((sum, b) => sum + b.duration_min + b.travel_time_min, 0);
+
+                    // If day exceeds window, remove last POI until it fits
+                    while (totalMins > availableMins && day.blocks.length > 1) {
+                        const removed = day.blocks.pop();
+                        console.warn(`[Orchestrator] Auto-trimming ${removed?.poi_id} from Day ${day.day} (exceeded time window)`);
+                        totalMins = day.blocks.reduce((sum, b) => sum + b.duration_min + b.travel_time_min, 0);
+                    }
+                }
+            }
+
+            // 4. Evaluate
             this.state = AgentState.EVALUATING;
             const evalResult = this.evalManager.evaluate(
                 this.currentItinerary!,
@@ -323,7 +338,7 @@ export class TravelAgent {
                 this.lastUserMessage
             );
 
-            // 4. Skip automatic reasoning (Moved to on-demand)
+            // 5. Skip automatic reasoning (Moved to on-demand)
             // const justifications = await this.reasoningManager.justifyPOIs(allPoiNodes, this.preferences.city, this.preferences.interests);
 
             if (evalResult.overall_status === 'pass') {
@@ -360,5 +375,35 @@ export class TravelAgent {
             this.state = AgentState.COLLECTING_PREFERENCES; // Reset state so user can retry
             return `Generation failed: ${error.message}. Please check server logs.`;
         }
+    }
+
+    private parseTimeWindow(window: string): number {
+        // Parse time window like "09:00-18:00" or "9am to 6pm"
+        let startHour = 9, endHour = 19;
+
+        try {
+            const normalized = window.toLowerCase().replace(/\s+/g, '');
+            const parts = normalized.split(/to|-|until/);
+            if (parts.length === 2) {
+                startHour = this.parseHour(parts[0]);
+                endHour = this.parseHour(parts[1]);
+            }
+        } catch (e) {
+            console.warn(`Time window parse failed for "${window}", using default 10h`);
+            return 600;
+        }
+
+        const total = (endHour - startHour) * 60;
+        return total > 0 ? total : 600;
+    }
+
+    private parseHour(h: string): number {
+        const valMatch = h.match(/\d+/);
+        if (!valMatch) return 9;
+        let val = parseInt(valMatch[0]);
+
+        if (h.includes("pm") && val < 12) val += 12;
+        if (h.includes("am") && val === 12) val = 0;
+        return val;
     }
 }
