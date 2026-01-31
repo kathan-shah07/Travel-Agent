@@ -1,134 +1,438 @@
-# Detailed Architecture: RAG-Grounded Travel Voice Assistant
+# 1. System Objective (one-liner)
 
-## 1. System Philosophy
-The system is built on the principle of **Grounded Generation**. Unlike standard LLM chat bots, this system separates the *creative* aspect (Chat UI) from the *factual* aspect (MCP Tools & RAG). 
-
-- **Factual Integrity**: Every Point of Interest (POI) must correspond to an OpenStreetMap (OSM) ID.
-- **Feasibility**: Itineraries are built using deterministic constraints (travel time, opening hours, pace).
-- **Justification**: Every recommendation is backed by a specific citation from Wikivoyage/Wikipedia.
+Build a **chat-based AI Travel Agent** that generates **grounded, evaluable, editable itineraries** for a single city (e.g. Bangalore) using **prefetched POI data**, **RAG**, and **MCP tools**, where **only evaluated itineraries are ever shown to users**.
 
 ---
 
-## 2. High-Level Architecture
-```mermaid
-graph TD
-    User([User]) <--> UI[Next.js Chat UI]
-    UI <--> Orc[Conversation Orchestrator]
-    
-    subgraph "Core Integration Layer"
-        Orc <--> PM[Preference Manager]
-        Orc <--> EE[Explanation Engine]
-        Orc <--> Eval[Evaluation Engine]
-    end
-    
-    subgraph "MCP (Model Context Protocol) Tools"
-        Orc <--> POI[MCP: POI Search - Overpass API]
-        Orc <--> IB[MCP: Itinerary Builder]
-    end
-    
-    subgraph "Knowledge Retrieval (RAG)"
-        Orc <--> RR[RAG Retriever]
-        RR --- Wiki[(Wikivoyage/Wikipedia Vector Store)]
-    end
+# 2. High-level Architecture (mental map)
+
+```
+┌──────────────┐
+│   Chat UI    │
+└──────┬───────┘
+       ↓
+┌──────────────┐
+│ Preference   │
+│  Manager     │
+└──────┬───────┘
+       ↓
+┌──────────────┐
+│ Travel Agent │  ← Orchestration Brain
+│ (Controller) │
+└──────┬───────┘
+       ↓
+┌──────────────┐
+│ Tool Manager │  ← MCP Client
+└──────┬───────┘
+       ↓
+┌──────────────────────────┐
+│ MCP Tools                │
+│  • POI Search MCP        │
+│  • Itinerary Builder MCP │
+│  • Weather MCP           │
+└──────────────┬───────────┘
+               ↓
+┌──────────────────────────┐
+│ RAG Pipeline             │
+│  • Vector DB             │
+│  • Retriever             │
+└──────────────┬───────────┘
+               ↓
+┌──────────────────────────┐
+│ Reasoning Manager        │
+└──────────────┬───────────┘
+               ↓
+┌──────────────────────────┐
+│ Evaluation Manager       │
+└──────────────┬───────────┘
+               ↓
+┌──────────────────────────┐
+│ UI-Ready Itinerary State │
+└──────────────┬───────────┘
+               ↓
+┌──────────────────────────┐
+│ Cache / Storage / Export │
+└──────────────────────────┘
 ```
 
 ---
 
-## 3. Component Deep Dive
+# 3. Core Design Rules (non-negotiable)
 
-### 3.1 Conversation Orchestrator (Stateful)
-- **Engine**: GPT-4o with Function Calling.
-- **Role**: Routes user messages, detects intents (Planning vs. Editing vs. Questioning), and manages the 6-turn clarification limit.
-- **State Schema**:
-  ```json
-  {
-    "session_id": "uuid",
-    "status": "collecting_preferences | confirmed | generating | idle",
-    "clarification_count": 0,
-    "current_itinerary_version": "v1"
-  }
-  ```
-
-### 3.2 Preference Manager
-- **Validator**: Ensures inputs match the allowed scope (Cities: Jaipur, Goa, Bengaluru; Days: 1-3).
-- **Schema**:
-  ```typescript
-  interface TripPreferences {
-    city: 'Jaipur' | 'Bengaluru' | 'Goa';
-    trip_days: 1 | 2 | 3;
-    pace: 'relaxed' | 'balanced' | 'packed';
-    interests: string[];
-    constraints: {
-      avoid_long_travel: boolean;
-      indoor_preferred: boolean;
-    };
-  }
-  ```
-
-### 3.3 MCP Tools (External Data)
-#### A. POI Search Tool
-- **Input**: City, Tags (mapped from interests).
-- **Action**: Generates an Overpass QL query (e.g., `node["tourism"="museum"](area)`) to fetch real coordinates and OSM metadata.
-- **Benefit**: Zero hallucinations. If OSM doesn't have it, the tool doesn't return it.
-
-#### B. Itinerary Builder Tool
-- **Heuristic**: Uses a greedy TSP (Traveling Salesperson) approximation to group POIs by geographic proximity.
-- **Constraints**: 
-  - Relaxed: 3 POIs/day (~2 hrs per stop).
-  - Balanced: 4 POIs/day.
-  - Packed: 5 POIs/day.
-
-### 3.4 RAG Pipeline (Retriever & Explanation)
-- **Data Source**: Markdown files parsed from Wikivoyage.
-- **Logic**: When a POI is chosen, the Retriever fetches the "See", "Eat", or "Do" section for that area.
-- **Explanation**: "I chose City Palace because [Source: Wikivoyage] it is the central landmark of the Pink City."
-
-### 3.5 Evaluation Engine (Automated)
-Every generated itinerary is passed through a validation pipeline:
-1.  **Feasibility Check**: (Total Duration + Travel Time) <= 10 hours.
-2.  **Edit Correctness**: If the user asked to "Change Day 2," the Engine calculates the diff between `v1` and `v2`. If Day 1 or Day 3 changed, the eval fails.
-3.  **Grounding Check**: Verifies all `poi_id`s exist in the OSM result set.
+1. **No itinerary is rendered unless all evals pass**
+2. **All POIs must map to prefetched dataset IDs**
+3. **All factual tips must come from RAG**
+4. **Edits modify only affected sections**
+5. **LLM never calls external APIs directly**
+6. **MCP tools are the only execution boundary**
 
 ---
 
-## 4. Technical Stack
-| Layer | Technology |
-| :--- | :--- |
-| **Frontend** | Next.js 14 (App Router), Tailwind CSS, Framer Motion (for voice animations) |
-| **Backend** | Next.js API Routes (node js)|
-| **LLM** | Groq (State Management), Gemini (RAG) |
-| **Database** | Local JSON for prototype |
-| **Vector Store** | LangChain / chromadb (Local) |
-| **APIs** | Overpass API (OSM), Google maps Places API for nearby places search |
+# 4. Component-by-Component Breakdown
 
----
+## 4.1 Chat UI (Frontend)
 
-## 5. Directory Structure
+### Responsibilities
+
+* Conversational interface
+* Shows itinerary only when state = `READY_FOR_UI`
+* Displays sources & evaluation badge
+* Allows chat-based edits
+* **Real-time Preference Tags**: Updates user preference tokens immediately.
+
+### UI States
+
 ```text
-/src
-  /app                # UI Layout & Chat Page
-  /components
-    /chat             # Voice/Text Input, Message History
-    /itinerary        # Day-wise visual cards & Maps
-    /sources          # Citation side-panel
-  /lib
-    /mcp              # POI & Itinerary Tool logic
-    /rag              # Retrieval & Vector store logic
-    /orchestrator     # LLM system prompts & state logic
-    /eval             # Rule-based evaluation scripts
-  /types              # TypeScript interfaces
-/data                 # Scraped Wikivoyage markdown files
+Idle
+Collecting Preferences
+Generating Itinerary
+Evaluating Plan
+Ready (Renderable)
+Confirmed
+```
+
+### UI Must Never
+
+* Show draft itineraries
+* Show unevaluated content
+* Invent explanations
+
+---
+
+## 4.2 Preference Manager
+
+### Purpose
+
+Collect, validate, and maintain **trip intent state**.
+
+### Responsibilities
+
+* Ask only missing preferences
+* Update context incrementally
+* Force user confirmation before planning
+* Handle modification requests
+
+### Required Preference Fields
+
+```json
+{
+  "city": "Bangalore",
+  "trip_days": 3,
+  "daily_time_window": "09:00-20:00",
+  "pace": "relaxed | moderate | fast",
+  "interests": [],
+  "constraints": {
+    "indoor_preference": false,
+    "mobility": "normal",
+    "weather_sensitive": true
+  },
+  "confirmed": false
+}
 ```
 
 ---
 
-## 6. Sequence Diagram (Planning Flow)
-1. **User**: "Plan a trip to Jaipur."
-2. **Orc**: Detects missing `interests` and `pace`.
-3. **Orc** -> **User**: "What do you like? Culture/Food? And what pace?"
-4. **User**: "Culture, relaxed."
-5. **Orc** -> **PM**: Validates and Saves.
-6. **Orc** -> **POI Tool**: Fetch culture POIs in Jaipur.
-7. **Orc** -> **IB Tool**: Build 2-day relaxed itinerary.
-8. **Orc** -> **EE**: Generate explanations with Wikivoyage citations.
-9. **UI**: Renders the final Plan.
+## 4.3 Travel Agent (Orchestration Layer)
+
+**This is the brain of the system.**
+
+### Responsibilities
+
+* Owns itinerary lifecycle state
+* Controls when tools are called
+* Coordinates RAG, MCP, evals, and UI
+* Prevents premature rendering
+
+### Itinerary State Machine
+
+```text
+COLLECTING_PREFERENCES
+GENERATING
+EVALUATING
+READY_FOR_UI
+CONFIRMED
+```
+
+Only `READY_FOR_UI` is renderable.
+
+---
+
+## 4.4 Tool Manager (MCP Client)
+
+### Purpose
+
+Strict boundary between AI reasoning and execution.
+
+### Responsibilities
+
+* Validate tool inputs
+* Invoke MCP tools
+* Normalize tool outputs
+* Reject unsafe calls
+
+### MCP Contract Rules
+
+* Deterministic inputs
+* JSON-only outputs
+* No prose
+* No hallucinated fields
+
+---
+
+# 5. MCP Tools (Minimum Two Required)
+
+## 5.1 POI Search MCP
+
+### Data Sources
+
+* **Google Maps**
+* **Google Gemini (for city guides only)**
+* **Wikipedia/Wikivoyage**
+
+### Responsibilities
+
+* Filter prefetched POIs
+* Rank POIs based on preferences
+* Return dataset IDs only
+* **Geospatial Filter**: REJECTS any POI > 50km from city center to prevent geocoding errors.
+
+### Input Schema
+
+```json
+{
+  "city": "Bangalore",
+  "interests": ["food", "heritage"],
+  "constraints": {
+    "indoor_preference": false,
+    "max_travel_time_min": 45
+  }
+}
+```
+
+### Output Schema
+
+```json
+{
+  "candidates": [
+    {
+      "poi_id": "blr_poi_1021",
+      "score": 0.92
+    }
+  ]
+}
+```
+
+---
+
+## 5.2 Itinerary Builder MCP
+
+### Responsibilities
+
+* Allocate POIs to days
+* Respect time windows & pace
+* Compute travel time using Google Maps Distance Matrix
+* No explanations
+* **Deduplication**: Automatically filters out duplicate POIs to prevent feasibility failures.
+
+### Input
+
+```json
+{
+  "poi_ids": ["blr_poi_1021"],
+  "daily_time_window": "09:00-20:00",
+  "pace": "relaxed"
+}
+```
+
+### Output
+
+```json
+{
+  "days": [
+    {
+      "day": 1,
+      "blocks": [
+        {
+          "time_of_day": "Morning",
+          "poi_id": "blr_poi_1021",
+          "duration_min": 120,
+          "travel_time_min": 25
+        }
+      ]
+    }
+  ]
+}
+```
+
+---
+
+## 5.3 Weather MCP (Optional but recommended)
+
+* Uses Open-Meteo
+* Provides forecast summaries
+* Used only for “what if it rains” explanations
+
+---
+
+# 6. RAG Pipeline
+
+## 6.1 Ingested Content (Prefetch Phase)
+
+* Gemini Search travel guides
+* Wikipedia / Wikivoyage
+* Area safety notes
+* POI descriptions
+
+## 6.2 Vector DB
+
+* Stores: Chunked travel tips, area guidance, POI descriptions
+
+## 6.3 Retrieval Usage
+
+Used **only** for:
+* Explanations
+* Justifications
+* Travel tips
+* Safety & etiquette
+
+### Rule
+
+> If RAG does not retrieve it, the system must say it does not know.
+
+---
+
+# 7. Reasoning Manager
+
+### Responsibilities
+
+* Answer “Why this place?”
+* Answer “Is this doable?”
+* Answer “What if it rains?”
+
+### Robustness Logic (Implemented)
+
+* **Regex Rescue**: If LLM output fails JSON parsing (due to conversational monologue), specific fields ("why", "timing") are extracted via regex to ensure valid output.
+* **Length Control**: Justifications are targeted at ~100 words for depth.
+
+### Inputs
+
+* Itinerary
+* Retrieved RAG chunks
+
+### Outputs
+
+```json
+{
+  "answer": "Cubbon Park is included because...",
+  "citations": ["rag_chunk_18", "rag_chunk_22"]
+}
+```
+
+No citations → no answer.
+
+---
+
+# 8. Evaluation Manager (Mandatory)
+
+## 8.1 Feasibility Evaluation
+
+Rule-based:
+* Total daily duration ≤ time window
+* Travel time reasonable
+* No overlaps
+
+## 8.2 Edit Correctness Evaluation
+
+* Hash compare unchanged days
+* Only targeted sections modified
+
+## 8.3 Grounding & Hallucination Evaluation
+
+* POI IDs exist in dataset
+* All tips cite RAG
+* Missing data explicitly stated
+
+### Evaluation Output
+
+```json
+{
+  "overall_status": "pass",
+  "details": {
+    "feasibility": "pass",
+    "grounding": "pass",
+    "edit_correctness": "pass"
+  }
+}
+```
+
+Failure → regenerate affected section only.
+
+---
+
+# 9. UI-Ready Itinerary Payload
+
+Frontend receives **only this**:
+
+```json
+{
+  "state": "READY_FOR_UI",
+  "itinerary": { ... },
+  "evaluation_summary": {
+    "feasibility": "pass",
+    "grounding": "pass",
+    "edit_correctness": "pass"
+  },
+  "sources_available": true
+}
+```
+
+---
+
+# 10. Persistence & Export
+
+### Cache
+* Draft itineraries
+* Edit iterations
+
+### Storage
+* Confirmed itineraries only
+
+### Export
+* JSON (machine)
+* PDF (human-readable)
+
+Only `CONFIRMED` itineraries are exportable.
+
+---
+
+# 11. Final Directory Structure
+
+```
+/src
+ ├─ api/                # Express Server
+ ├─ ui/                 # Frontend (HTML/CSS/JS)
+ ├─ orchestrator/       # TravelAgent.ts (State Machine)
+ ├─ preference-manager/ # PreferenceManager.ts
+ ├─ tool-manager/       # ToolManager.ts
+ ├─ mcp/                # Tools
+ │   ├─ poi-search/     # Wiki/Geocoding + Distance Filter
+ │   ├─ itinerary-builder/ # Scheduling + Deduplication
+ │   └─ weather/        # OpenMeteo
+ ├─ rag/                # Vector Store
+ ├─ reasoning/          # ReasoningManager (Regex Rescue)
+ ├─ evaluation/         # EvaluationManager
+ ├─ types/              # TS Interfaces
+ └─ utils/              # PDF Generator
+```
+
+---
+
+# 12. What This Architecture Gives You
+
+* No hallucinated itineraries
+* Deterministic edits
+* Trustworthy explanations
+* Clear separation of reasoning vs execution
+* **Production-Grade robustness** (Deduplication, Geo-Filtering, JSON Rescue).
+
+This is **production-grade AI system design**, not a demo.
