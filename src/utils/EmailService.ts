@@ -25,6 +25,14 @@ export class EmailService {
     }
 
     public async sendItineraryEmail(toEmail: string, pdfPath: string): Promise<boolean> {
+        // Check if running on Render (which blocks SMTP on free tier)
+        const isRender = process.env.RENDER === 'true' || process.env.RENDER_SERVICE_NAME;
+
+        if (isRender) {
+            console.warn("[Email] Running on Render - SMTP is blocked on free tier. Skipping email.");
+            return false;
+        }
+
         if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
             console.warn("Email credentials missing. Skipping email send.");
             return false;

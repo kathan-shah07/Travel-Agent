@@ -105,35 +105,37 @@ export const ItineraryBuilderTool: Tool = {
             let result: any = {};
 
             try {
-                // Remove potential markdown blocks or garbage
+                // Ultra-aggressive JSON extraction
                 let cleaned = content.trim();
-                if (cleaned.startsWith('```json')) cleaned = cleaned.replace(/^```json/, '');
-                if (cleaned.endsWith('```')) cleaned = cleaned.replace(/```$/, '');
 
-                const start = cleaned.indexOf('{');
-                const end = cleaned.lastIndexOf('}');
-                if (start !== -1 && end !== -1) {
-                    const jsonPart = cleaned.substring(start, end + 1);
-                    // Minimal cleanup for common LLM errors (like trailing commas)
-                    const sanitized = jsonPart.replace(/,\s*([\]}])/g, '$1');
-                    result = JSON.parse(sanitized);
-                } else {
-                    result = JSON.parse(cleaned);
+                // Remove markdown blocks
+                cleaned = cleaned.replace(/```json\s*/gi, '').replace(/```\s*$/g, '');
+
+                // Find the FIRST { and LAST } to extract only the JSON object
+                const firstBrace = cleaned.indexOf('{');
+                const lastBrace = cleaned.lastIndexOf('}');
+
+                if (firstBrace === -1 || lastBrace === -1 || firstBrace >= lastBrace) {
+                    throw new Error("No valid JSON structure found in response");
                 }
+
+                // Extract ONLY the JSON part (strip any text before/after)
+                let jsonStr = cleaned.substring(firstBrace, lastBrace + 1);
+
+                // Fix common LLM JSON errors
+                jsonStr = jsonStr
+                    .replace(/,\s*([\]}])/g, '$1')  // Remove trailing commas
+                    .replace(/'/g, '"')              // Replace single quotes with double quotes
+                    .replace(/(\w+):/g, '"$1":');    // Quote unquoted keys
+
+                result = JSON.parse(jsonStr);
+
             } catch (e) {
-                console.warn("[ItineraryBuilder] Standard JSON parse failed, trying regex rescue...");
-                try {
-                    // Very aggressive rescue: find anything between first { and last }
-                    const match = content.match(/\{[\s\S]*\}/);
-                    if (match) {
-                        result = JSON.parse(match[0].replace(/,\s*([\]}])/g, '$1'));
-                    } else {
-                        throw new Error("No JSON structure found");
-                    }
-                } catch (e2) {
-                    console.error("[ItineraryBuilder] JSON Parse failed completely:", e2);
-                    result = { days: [{ day: 1, blocks: [] }] }; // Fallback to avoid 0-day error
-                }
+                console.error("[ItineraryBuilder] JSON Parse failed:", e);
+                console.error("[ItineraryBuilder] Raw LLM Response:", content.substring(0, 500));
+
+                // Ultimate fallback: return minimal valid structure
+                result = { days: [{ day: 1, blocks: [] }] };
             }
 
             // Ensure schema compliance and REMOVE DUPLICATES
