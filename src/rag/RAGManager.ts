@@ -22,7 +22,8 @@ export class RAGManager {
 
     private async getExtractor() {
         if (!this.extractor) {
-            const { pipeline } = await import('@xenova/transformers');
+            // Use eval to prevent tsc from transpiling this to require() in CJS output
+            const { pipeline } = await (eval('import("@xenova/transformers")') as any);
             this.extractor = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
         }
         return this.extractor;

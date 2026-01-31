@@ -105,17 +105,35 @@ export const ItineraryBuilderTool: Tool = {
             let result: any = {};
 
             try {
-                const start = content.indexOf('{');
-                const end = content.lastIndexOf('}');
+                // Remove potential markdown blocks or garbage
+                let cleaned = content.trim();
+                if (cleaned.startsWith('```json')) cleaned = cleaned.replace(/^```json/, '');
+                if (cleaned.endsWith('```')) cleaned = cleaned.replace(/```$/, '');
+
+                const start = cleaned.indexOf('{');
+                const end = cleaned.lastIndexOf('}');
                 if (start !== -1 && end !== -1) {
-                    result = JSON.parse(content.substring(start, end + 1));
+                    const jsonPart = cleaned.substring(start, end + 1);
+                    // Minimal cleanup for common LLM errors (like trailing commas)
+                    const sanitized = jsonPart.replace(/,\s*([\]}])/g, '$1');
+                    result = JSON.parse(sanitized);
                 } else {
-                    result = JSON.parse(content); // Try raw
+                    result = JSON.parse(cleaned);
                 }
             } catch (e) {
-                console.error("[ItineraryBuilder] JSON Parse failed:", e);
-                // Fallback or empty
-                result = { days: [] };
+                console.warn("[ItineraryBuilder] Standard JSON parse failed, trying regex rescue...");
+                try {
+                    // Very aggressive rescue: find anything between first { and last }
+                    const match = content.match(/\{[\s\S]*\}/);
+                    if (match) {
+                        result = JSON.parse(match[0].replace(/,\s*([\]}])/g, '$1'));
+                    } else {
+                        throw new Error("No JSON structure found");
+                    }
+                } catch (e2) {
+                    console.error("[ItineraryBuilder] JSON Parse failed completely:", e2);
+                    result = { days: [{ day: 1, blocks: [] }] }; // Fallback to avoid 0-day error
+                }
             }
 
             // Ensure schema compliance and REMOVE DUPLICATES

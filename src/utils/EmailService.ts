@@ -9,13 +9,17 @@ export class EmailService {
 
     constructor() {
         // Configure transport based on env vars
-        // For testing, we might default to a mock or ethereal if no real creds provided
         this.transporter = nodemailer.createTransport({
-            service: 'gmail', // Simplest for demo, ideally configurable
+            host: 'smtp.gmail.com',
+            port: 465,
+            secure: true, // Use SSL
             auth: {
                 user: process.env.EMAIL_USER,
                 pass: process.env.EMAIL_PASS
-            }
+            },
+            connectionTimeout: 10000, // 10 seconds
+            greetingTimeout: 10000,
+            socketTimeout: 20000
         });
     }
 

@@ -1,47 +1,55 @@
-# 🚀 Deployment Guide
+# 🚀 Deployment Guide (Render.com)
 
-This guide explains how to deploy the Travel Agent to **Render.com** (Free Tier).
+This guide provides the exact configuration to deploy the Travel Agent using **Docker** on Render. This is the recommended method as it ensures all system dependencies are correctly installed.
 
-## Option 1: Render (Recommended)
+## 📋 Step-by-Step Configuration
 
-Render offers a free "Web Service" tier that can run Node.js/Docker apps.
+1.  **Dashboard**: Log in to [dashboard.render.com](https://dashboard.render.com/).
+2.  **New Service**: Click **New +** -> **Web Service**.
+3.  **Connect Repo**: Select your GitHub repository (`Travel-Agent`).
 
-### **Steps:**
+### **⚙️ Service Settings (Copy Exactly)**
 
-1.  **Push to GitHub**:
-    *   Make sure this code is pushed to a GitHub repository.
-
-2.  **Sign up for Render**:
-    *   Go to [dashboard.render.com](https://dashboard.render.com/) and login with GitHub.
-
-3.  **Create New Web Service**:
-    *   Click **"New +"** -> **"Web Service"**.
-    *   Select your repository.
-
-4.  **Configure Settings**:
-    *   **Name**: `travel-agent`
-    *   **Environment**: `Node`
-    *   **Build Command**: `npm install && npm run build`
-    *   **Start Command**: `npm start`
-    *   **Plan**: Free
-
-5.  **Environment Variables (Important)**:
-    *   Scroll down to **"Environment Variables"**.
-    *   Add Key: `GROQ_API_KEY`
-    *   Value: `your_groq_api_key_here` (Copy from your local .env)
-
-6.  **Deploy**:
-    *   Click **"Create Web Service"**.
-    *   Wait 2-3 minutes. Render will build and start your app.
-
-### **Done!** 🌍
-Render will give you a URL (e.g., `https://travel-agent.onrender.com`).
-Open it in your browser to start planning trips!
+| Setting | Value | Note |
+| :--- | :--- | :--- |
+| **Name** | `atlas-travel-agent` | Or any name you like |
+| **Region** | `Singapore` (or nearest) | Choose closest to you |
+| **Branch** | `main` | |
+| **Root Directory** | **LEAVE BLANK** | ⚠️ **Critical**: Do not type `src` or `.` |
+| **Runtime** | **Docker** | Select "Docker" (not Node) |
+| **Instance Type** | **Free** | |
 
 ---
 
-## ⚠️ Important Note on Data
-*   The free tier of Render has an **Ephemeral Filesystem**.
-*   This means **Voice Uploads** and the **LanceDB (Vector DB)** will be reset every time the server restarts (spin-down).
-*   For a hackathon demo, this is fine (it will just rebuild the relevant context index on the fly or start fresh).
-*   For production, you would need to use a persistent disk (Paid feature) or cloud storage (S3).
+### **🐳 Docker Details**
+
+If asked for specific Docker settings (usually auto-detected):
+*   **Dockerfile Path**: `Dockerfile` (or `./Dockerfile`)
+*   **Context Directory**: `.` (Current directory)
+
+---
+
+### **🔑 Environment Variables**
+
+You **MUST** add your API keys for the app to work.
+Scroll down to the **Environment Variables** section and add:
+
+| Key | Value |
+| :--- | :--- |
+| `GROQ_API_KEY` | `gsk_...` (Your actual key) |
+| `PORT` | `3000` (Optional, Render usually detects EXPOSE) |
+
+---
+
+### **🚀 Deploy**
+1.  Click **Create Web Service**.
+2.  Render will start building.
+    *   It will pull the Node image.
+    *   Install dependencies.
+    *   Build the project.
+3.  Wait ~3-5 minutes.
+4.  Once you see `Server running on port 3000` in the logs, click the URL at the top!
+
+### **Troubleshooting**
+*   **"Dockerfile not found"**: Ensure **Root Directory** setting is **BLANK**. If you typed `./` in Root Directory, remove it.
+*   **"Build Failed"**: Check the logs. If it says "out of memory", the Free tier might be struggling. Usually, this app is light enough.
