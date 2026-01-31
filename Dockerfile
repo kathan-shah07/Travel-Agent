@@ -1,7 +1,9 @@
-
 # Build for Render
-# Use official Node.js image (Lightweight)
-FROM node:18-slim
+# Use full Node.js image to ensure all system libraries (glibc, libstdc++) are present
+FROM node:18
+
+# Install build essentials for native modules (like lancedb/onnx)
+RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
