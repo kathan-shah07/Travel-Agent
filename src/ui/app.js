@@ -212,6 +212,7 @@ async function sendMessage() {
 
         if (apiResponse.message) {
             let formattedMsg = apiResponse.message.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+            formattedMsg = formattedMsg.replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2" target="_blank" class="download-link">$1</a>');
             formattedMsg = formattedMsg.replace(/\*Sources: (.*?)\*/g, '<br><em class="source-cite">Sources: $1</em>');
             addMessage(formattedMsg);
 
@@ -225,7 +226,9 @@ async function sendMessage() {
             currentItineraryData = apiResponse;
         }
         else if (typeof apiResponse === 'string') {
-            addMessage(apiResponse);
+            let formattedMsg = apiResponse.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+            formattedMsg = formattedMsg.replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2" target="_blank" class="download-link">$1</a>');
+            addMessage(formattedMsg);
             speak(apiResponse);
         }
 

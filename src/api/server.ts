@@ -12,6 +12,7 @@ import path from 'path';
 const app = express();
 app.use(express.json());
 app.use(express.static('src/ui')); // Serve static files from src/ui
+app.use('/outputs', express.static('outputs')); // Serve generated PDFs
 
 // Configure Multer for Audio Uploads
 // @ts-ignore
@@ -89,6 +90,11 @@ export const startServer = (port: number) => {
     // Ensure uploads dir exists
     if (!fs.existsSync('uploads')) {
         fs.mkdirSync('uploads');
+    }
+
+    // Ensure outputs dir exists
+    if (!fs.existsSync('outputs')) {
+        fs.mkdirSync('outputs');
     }
 
     app.listen(port, () => {

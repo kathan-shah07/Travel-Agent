@@ -16,6 +16,7 @@ import { TravelTimeTool } from '../mcp/travel-time';
 import { PdfGenerator } from '../utils/PdfGenerator';
 import { EmailService } from '../utils/EmailService';
 import path from 'path';
+import fs from 'fs';
 
 export class TravelAgent {
     private state: AgentState = AgentState.COLLECTING_PREFERENCES;
@@ -185,9 +186,14 @@ export class TravelAgent {
 
         try {
             const fileName = `itinerary_${Date.now()}.pdf`;
-            const filePath = path.join(process.cwd(), fileName);
+            const outputsDir = path.join(process.cwd(), 'outputs');
+            if (!fs.existsSync(outputsDir)) fs.mkdirSync(outputsDir);
+
+            const filePath = path.join(outputsDir, fileName);
             await this.pdfGenerator.generateItineraryPdf(this.currentItinerary, filePath);
-            return `I've generated your PDF itinerary: ${filePath}`;
+
+            // Return a relative link for the UI
+            return `I've generated your PDF itinerary! [Click here to download](/outputs/${fileName})`;
         } catch (error) {
             console.error("PDF Gen Error:", error);
             return "Sorry, I couldn't generate the PDF at this time.";
@@ -205,13 +211,16 @@ export class TravelAgent {
 
         const toEmail = emailMatch[0];
         const fileName = `itinerary_${Date.now()}.pdf`;
-        const filePath = path.join(process.cwd(), fileName);
+        const outputsDir = path.join(process.cwd(), 'outputs');
+        if (!fs.existsSync(outputsDir)) fs.mkdirSync(outputsDir);
+
+        const filePath = path.join(outputsDir, fileName);
 
         try {
             await this.pdfGenerator.generateItineraryPdf(this.currentItinerary, filePath);
             const success = await this.emailService.sendItineraryEmail(toEmail, filePath);
             if (success) return `Email sent to ${toEmail}!`;
-            else return "Failed to send email. Please check your system configuration.";
+            else return "Failed to send email. I've put the PDF here for you: [Download Itinerary](/outputs/${fileName})";
         } catch (e) {
             return "An error occurred while sending the email.";
         }
