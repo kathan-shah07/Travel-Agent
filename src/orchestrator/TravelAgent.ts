@@ -185,15 +185,18 @@ export class TravelAgent {
         if (!this.currentItinerary) return "No itinerary to export.";
 
         try {
-            const fileName = `itinerary_${Date.now()}.pdf`;
-            const outputsDir = path.join(process.cwd(), 'outputs');
-            if (!fs.existsSync(outputsDir)) fs.mkdirSync(outputsDir);
+            // Generate PDF as Buffer (in-memory)
+            const pdfBuffer = await this.pdfGenerator.generateItineraryPdfBuffer(this.currentItinerary);
 
-            const filePath = path.join(outputsDir, fileName);
-            await this.pdfGenerator.generateItineraryPdf(this.currentItinerary, filePath);
+            // Generate unique ID
+            const pdfId = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-            // Return a relative link for the UI
-            return `I've generated your PDF itinerary! [Click here to download](/outputs/${fileName})`;
+            // Store in memory cache (import pdfCache from server)
+            const { pdfCache } = await import('../api/server');
+            pdfCache[pdfId] = pdfBuffer;
+
+            // Return download link
+            return `✅ **PDF Generated!**\n\n[📥 Click here to download your itinerary](/download-pdf/${pdfId})`;
         } catch (error) {
             console.error("PDF Gen Error:", error);
             return "Sorry, I couldn't generate the PDF at this time.";
@@ -210,19 +213,36 @@ export class TravelAgent {
         }
 
         const toEmail = emailMatch[0];
-        const fileName = `itinerary_${Date.now()}.pdf`;
-        const outputsDir = path.join(process.cwd(), 'outputs');
-        if (!fs.existsSync(outputsDir)) fs.mkdirSync(outputsDir);
-
-        const filePath = path.join(outputsDir, fileName);
 
         try {
-            await this.pdfGenerator.generateItineraryPdf(this.currentItinerary, filePath);
-            const success = await this.emailService.sendItineraryEmail(toEmail, filePath);
-            if (success) return `Email sent to ${toEmail}!`;
-            else return "Failed to send email. I've put the PDF here for you: [Download Itinerary](/outputs/${fileName})";
+            // Generate PDF as Buffer
+            const pdfBuffer = await this.pdfGenerator.generateItineraryPdfBuffer(this.currentItinerary);
+            const pdfId = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+            // Store in cache for download link fallback
+            const { pdfCache } = await import('../api/server');
+            pdfCache[pdfId] = pdfBuffer;
+
+            // Try to send email (will fail gracefully on Render)
+            const fileName = `itinerary_${pdfId}.pdf`;
+            const tempPath = path.join(process.cwd(), 'uploads', fileName);
+
+            // Write temporarily for email attachment
+            fs.writeFileSync(tempPath, pdfBuffer);
+
+            const success = await this.emailService.sendItineraryEmail(toEmail, tempPath);
+
+            // Clean up temp file
+            if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+
+            if (success) {
+                return `✅ Email sent to **${toEmail}**!`;
+            } else {
+                return `⚠️ Email service unavailable on this platform.\n\nBut don't worry! [📥 Click here to download your itinerary](/download-pdf/${pdfId})`;
+            }
         } catch (e) {
-            return "An error occurred while sending the email.";
+            console.error("Email Error:", e);
+            return "An error occurred. Please try the 'Export PDF' option instead.";
         }
     }
 

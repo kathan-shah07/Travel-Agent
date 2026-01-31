@@ -22,8 +22,25 @@ const groq = new Groq({ apiKey: CONFIG.GROQ_API_KEY });
 // Simple in-memory session store
 const sessions: Record<string, TravelAgent> = {};
 
+// In-memory PDF cache (for cloud compatibility - ephemeral filesystem)
+const pdfCache: Record<string, Buffer> = {};
+
 app.get('/status', (req: any, res: any) => {
     res.json({ status: 'running' });
+});
+
+// Endpoint: Download PDF from memory
+app.get('/download-pdf/:id', (req: any, res: any) => {
+    const pdfId = req.params.id;
+    const pdfBuffer = pdfCache[pdfId];
+
+    if (!pdfBuffer) {
+        return res.status(404).json({ error: 'PDF not found or expired' });
+    }
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="itinerary_${pdfId}.pdf"`);
+    res.send(pdfBuffer);
 });
 
 app.post('/chat', async (req: any, res: any) => {
@@ -101,3 +118,6 @@ export const startServer = (port: number) => {
         console.log(`Server running on port ${port}`);
     });
 };
+
+// Export PDF cache for TravelAgent to use
+export { pdfCache };
