@@ -89,9 +89,11 @@ export const ItineraryBuilderTool: Tool = {
             - "Evening" (5pm-9pm) - Use for sunset spots, early dinner, markets that open in evening
             - "Night" (9pm-12am) - Use for night markets, clubs, late-night food streets (ONLY if user's window allows)
 
-            OUTPUT FORMAT (Respond in JSON format):
-            { "days": [ { "day": 1, "blocks": [ { "time_of_day": "Morning", "poi_id": "poi_123", "poi_name": "Lal Bagh", "duration_min": 120 } ] } ] }
-            (Do not output travel_time_min or travel_distance_km; they will be calculated separately).
+            OUTPUT FORMAT - **CRITICAL**:
+            - Return ONLY valid JSON. No explanations, no markdown blocks, no XML tags like <think> or <reasoning>.
+            - Start your response with { and end with }
+            - Format: { "days": [ { "day": 1, "blocks": [ { "time_of_day": "Morning", "poi_id": "poi_123", "poi_name": "Lal Bagh", "duration_min": 120 } ] } ] }
+            - Do NOT output travel_time_min or travel_distance_km; they will be calculated separately.
         `;
 
         try {
@@ -107,6 +109,9 @@ export const ItineraryBuilderTool: Tool = {
             try {
                 // Ultra-aggressive JSON extraction
                 let cleaned = content.trim();
+
+                // Remove ALL XML-style tags (like <think>, <reasoning>, etc.)
+                cleaned = cleaned.replace(/<[^>]+>/g, '');
 
                 // Remove markdown blocks
                 cleaned = cleaned.replace(/```json\s*/gi, '').replace(/```\s*$/g, '');
@@ -125,8 +130,8 @@ export const ItineraryBuilderTool: Tool = {
                 // Fix common LLM JSON errors
                 jsonStr = jsonStr
                     .replace(/,\s*([\]}])/g, '$1')  // Remove trailing commas
-                    .replace(/'/g, '"')              // Replace single quotes with double quotes
-                    .replace(/(\w+):/g, '"$1":');    // Quote unquoted keys
+                    .replace(/\n/g, ' ')             // Remove newlines
+                    .replace(/\s+/g, ' ');           // Normalize whitespace
 
                 result = JSON.parse(jsonStr);
 
@@ -135,7 +140,12 @@ export const ItineraryBuilderTool: Tool = {
                 console.error("[ItineraryBuilder] Raw LLM Response:", content.substring(0, 500));
 
                 // Ultimate fallback: return minimal valid structure
-                result = { days: [{ day: 1, blocks: [] }] };
+                result = { days: [] };
+
+                // Try to create at least one day with empty blocks
+                for (let i = 1; i <= input.trip_days; i++) {
+                    result.days.push({ day: i, blocks: [] });
+                }
             }
 
             // Ensure schema compliance and REMOVE DUPLICATES
