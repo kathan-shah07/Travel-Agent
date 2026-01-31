@@ -1,7 +1,7 @@
 
 # Build for Render
 # Use official Node.js image (Lightweight)
-FROM node:18-alpine
+FROM node:18-slim
 
 # Set working directory
 WORKDIR /app
